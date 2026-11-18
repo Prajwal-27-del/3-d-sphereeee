@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hand-Gesture Controlled 3D Sphere</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background: #06080f;
+      color: #e2e8f0;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    #canvas-container {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+    }
+
+    /* Top HUD */
+    .hud-top {
+      position: fixed;
+      top: 20px;
+      left: 24px;
+      right: 24px;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      pointer-events: none;
+    }
+
+    .title-card {
+      background: rgba(15, 23, 42, 0.72);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 14px;
+      padding: 14px 18px;
+      max-width: 340px;
+      pointer-events: auto;
+    }
+
+    .title-card h1 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #f8fafc;
+      margin-bottom: 6px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      color: #94a3b8;
+      margin-bottom: 10px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #64748b;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+
+    .status-dot.active {
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+    }
+
+    .gestures-list {
+      list-style: none;
+      font-size: 0.8rem;
+      color: #cbd5e1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 8px;
+    }
+
+    .gestures-list strong {
+      color: #38bdf8;
+    }
+
+    .controls-top-right {
+      display: flex;
+      gap: 10px;
+      pointer-events: auto;
+    }
+
+    button {
+      background: rgba(15, 23, 42, 0.85);
+      color: #f8fafc;
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      transition: all 0.2s ease;
+    }
+
+    button:hover {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: #38bdf8;
+    }
+
+    button.primary {
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      border: none;
+      box-shadow: 0 4px 15px rgba(2, 132, 199, 0.4);
+    }
+
+    button.primary:hover {
+      filter: brightness(1.12);
+    }
+
+    /* Webcam Preview Box */
+    .webcam-wrapper {
+      position: fixed;
+      bottom: 20px;
+      right: 24px;
+      z-index: 10;
+      width: 240px;
+      height: 180px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #0f172a;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    .webcam-wrapper.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(15px);
+    }
+
+    #input-video {
+      display: none;
+    }
+
+    #output-canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* Mirror effect */
+    }
+
+    .theme-pill {
+      position: fixed;
+      bottom: 20px;
+      left: 24px;
+      z-index: 10;
+      background: rgba(15, 23, 42, 0.72);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      color: #cbd5e1;
+    }
+  </style>
+
+  <!-- Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- MediaPipe Hands & Camera Utils -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+
+  <div class="hud-top">
+    <div class="title-card">
+      <h1>Gesture-Controlled 3D Sphere</h1>
+      <div class="status-badge">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Camera Off (Mouse/Touch Active)</span>
+      </div>
+      <ul class="gestures-list">
+        <li><strong>Move Hand:</strong> Rotate sphere in 3D</li>
+        <li><strong>Pinch / Spread:</strong> Scale & zoom sphere</li>
+        <li><strong>Closed Fist:</strong> Switch glowing theme</li>
+      </ul>
+    </div>
+
+    <div class="controls-top-right">
+      <button id="toggle-preview-btn" style="display: none;">Hide Preview</button>
+      <button id="camera-btn" class="primary">Start Camera</button>
+    </div>
+  </div>
+
+  <div class="theme-pill">
+    Theme: <strong id="theme-name" style="color: #38bdf8;">Cyber Neon</strong>
+  </div>
+
+  <div class="webcam-wrapper hidden" id="webcam-wrapper">
+    <video id="input-video" playsinline></video>
+    <canvas id="output-canvas" width="480" height="360"></canvas>
+  </div>
+
+  <script>
+    // ==========================================
+    // 1. THREE.JS SCENE & SPHERE SETUP
+    // ==========================================
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x06080f, 0.045);
+
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.z = 6.5;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    // Themes configuration
+    const themes = [
+      { name: 'Cyber Neon', wire: 0x38bdf8, core: 0x0284c7, particles: 0x7dd3fc },
+      { name: 'Hologram Matrix', wire: 0x10b981, core: 0x047857, particles: 0x6ee7b7 },
+      { name: 'Plasma Core', wire: 0xf97316, core: 0xc2410c, particles: 0xfdba74 },
+      { name: 'Quantum Violet', wire: 0xc084fc, core: 0x7e22ce, particles: 0xe9d5ff }
+    ];
+    let currentThemeIndex = 0;
+
+    // Group holding all sphere layers
+    const sphereGroup = new THREE.Group();
+    scene.add(sphereGroup);
+
+    // Outer Wireframe Icosahedron
+    const wireGeo = new THREE.IcosahedronGeometry(1.8, 3);
+    const wireMat = new THREE.MeshBasicMaterial({
+      color: themes[0].wire,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.45
+    });
+    const wireMesh = new THREE.Mesh(wireGeo, wireMat);
+    sphereGroup.add(wireMesh);
+
+    // Inner Glowing Core
+    const coreGeo = new THREE.SphereGeometry(1.35, 32, 32);
+    const coreMat = new THREE.MeshPhongMaterial({
+      color: themes[0].core,
+      emissive: themes[0].core,
+      emissiveIntensity: 0.45,
+      shininess: 90,
+      transparent: true,
+      opacity: 0.85
+    });
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    sphereGroup.add(coreMesh);
+
+    // Surface Vertex Nodes (Particles)
+    const pointsGeo = new THREE.IcosahedronGeometry(1.84, 3);
+    const pointsMat = new THREE.PointsMaterial({
+      color: themes[0].particles,
+      size: 0.045,
+      transparent: true,
+      opacity: 0.9
+    });
+    const pointsMesh = new THREE.Points(pointsGeo, pointsMat);
+    sphereGroup.add(pointsMesh);
+
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambientLight);
+
+    const pointLight = new THREE.PointLight(0xffffff, 1.4);
+    pointLight.position.set(5, 5, 5);
+    scene.add(pointLight);
+
+    // Target states for smooth damping (lerp)
+    let targetRotX = 0;
+    let targetRotY = 0;
+    let targetScale = 1.0;
+    let isHandTracking = false;
+    let fistCooldown = false;
+
+    function cycleTheme() {
+      currentThemeIndex = (currentThemeIndex + 1) % themes.length;
+      const t = themes[currentThemeIndex];
+      wireMat.color.setHex(t.wire);
+      coreMat.color.setHex(t.core);
+      coreMat.emissive.setHex(t.core);
+      pointsMat.color.setHex(t.particles);
+      document.getElementById('theme-name').textContent = t.name;
+      document.getElementById('theme-name').style.color = '#' + t.wire.toString(16).padStart(6, '0');
+    }
+
+    // ==========================================
+    // 2. MOUSE / TOUCH FALLBACK CONTROLS
+    // ==========================================
+    let isDragging = false;
+    let prevPointer = { x: 0, y: 0 };
+
+    window.addEventListener('pointerdown', (e) => {
+      if (e.target.tagName === 'BUTTON') return;
+      isDragging = true;
+      prevPointer = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener('pointermove', (e) => {
+      if (!isDragging || isHandTracking) return;
+      const dx = e.clientX - prevPointer.x;
+      const dy = e.clientY - prevPointer.y;
+      targetRotY += dx * 0.007;
+      targetRotX += dy * 0.007;
+      prevPointer = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener('pointerup', () => {
+      isDragging = false;
+    });
+
+    window.addEventListener('wheel', (e) => {
+      if (isHandTracking) return;
+      targetScale -= e.deltaY * 0.001;
+      targetScale = Math.max(0.45, Math.min(2.2, targetScale));
+    }, { passive: true });
+
+    // ==========================================
+    // 3. MEDIAPIPE HANDS TRACKING
+    // ==========================================
+    const videoElement = document.getElementById('input-video');
+    const canvasElement = document.getElementById('output-canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.65,
+      minTrackingConfidence: 0.65
+    });
+
+    hands.onResults((results) => {
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+
+        // Draw skeleton overlay
+        drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#38bdf8', lineWidth: 2 });
+        drawLandmarks(canvasCtx, landmarks, { color: '#f8fafc', lineWidth: 1, radius: 2.5 });
+
+        // 1. Hand Center -> 3D Rotation (Middle finger MCP landmark 9)
+        const palm = landmarks[9];
+        // Mirror X coordinate so moving hand right rotates right
+        const normX = (0.5 - palm.x) * 2;
+        const normY = (palm.y - 0.5) * 2;
+        targetRotY = normX * Math.PI * 1.4;
+        targetRotX = normY * Math.PI * 1.1;
+
+        // 2. Thumb Tip (4) & Index Tip (8) Distance -> Pinch/Spread Scale
+        const thumbTip = landmarks[4];
+        const indexTip = landmarks[8];
+        const pinchDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+        // Map distance (~0.03 to ~0.28) to scale (0.5 to 2.1)
+        const mappedScale = 0.45 + (pinchDist * 6.2);
+        targetScale = Math.max(0.45, Math.min(2.2, mappedScale));
+
+        // 3. Closed Fist Detection -> Cycle Theme
+        const wrist = landmarks[0];
+        const fingerTips = [8, 12, 16, 20];
+        const avgTipToWrist = fingerTips.reduce((sum, idx) => {
+          return sum + Math.hypot(landmarks[idx].x - wrist.x, landmarks[idx].y - wrist.y);
+        }, 0) / fingerTips.length;
+
+        if (avgTipToWrist < 0.16) {
+          if (!fistCooldown) {
+            cycleTheme();
+            fistCooldown = true;
+            setTimeout(() => { fistCooldown = false; }, 1000);
+          }
+          statusText.textContent = 'Gesture: Fist (Theme Switched)';
+        } else {
+          statusText.textContent = 'Tracking Hand — Move, Pinch, or Fist';
+        }
+      } else {
+        statusText.textContent = 'Camera Active — Show Your Hand';
+      }
+
+      canvasCtx.restore();
+    });
+
+    // Camera Start/Stop Logic
+    const cameraBtn = document.getElementById('camera-btn');
+    const togglePreviewBtn = document.getElementById('toggle-preview-btn');
+    const webcamWrapper = document.getElementById('webcam-wrapper');
+    let mpCamera = null;
+    let cameraRunning = false;
+
+    cameraBtn.addEventListener('click', async () => {
+      if (!cameraRunning) {
+        cameraBtn.textContent = 'Starting...';
+        mpCamera = new Camera(videoElement, {
+          onFrame: async () => {
+            await hands.send({ image: videoElement });
+          },
+          width: 480,
+          height: 360
+        });
+        await mpCamera.start();
+        cameraRunning = true;
+        isHandTracking = true;
+        cameraBtn.textContent = 'Stop Camera';
+        cameraBtn.classList.remove('primary');
+        statusDot.classList.add('active');
+        statusText.textContent = 'Camera Active — Show Your Hand';
+        webcamWrapper.classList.remove('hidden');
+        togglePreviewBtn.style.display = 'inline-block';
+      } else {
+        if (mpCamera) mpCamera.stop();
+        cameraRunning = false;
+        isHandTracking = false;
+        cameraBtn.textContent = 'Start Camera';
+        cameraBtn.classList.add('primary');
+        statusDot.classList.remove('active');
+        statusText.textContent = 'Camera Off (Mouse/Touch Active)';
+        webcamWrapper.classList.add('hidden');
+        togglePreviewBtn.style.display = 'none';
+      }
+    });
+
+    togglePreviewBtn.addEventListener('click', () => {
+      const isHidden = webcamWrapper.classList.toggle('hidden');
+      togglePreviewBtn.textContent = isHidden ? 'Show Preview' : 'Hide Preview';
+    });
+
+    // ==========================================
+    // 4. ANIMATION LOOP & RESIZE
+    // ==========================================
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Gentle idle rotation when neither dragging nor tracking
+      if (!isHandTracking && !isDragging) {
+        targetRotY += 0.003;
+      }
+
+      // Smooth interpolation (lerp)
+      sphereGroup.rotation.x += (targetRotX - sphereGroup.rotation.x) * 0.1;
+      sphereGroup.rotation.y += (targetRotY - sphereGroup.rotation.y) * 0.1;
+
+      const currentScale = sphereGroup.scale.x;
+      const nextScale = currentScale + (targetScale - currentScale) * 0.1;
+      sphereGroup.scale.set(nextScale, nextScale, nextScale);
+
+      // Subtle counter-rotation for the inner core
+      coreMesh.rotation.y -= 0.005;
+
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+  </script>
+</body>
+</html>
